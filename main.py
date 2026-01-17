@@ -1,0 +1,283 @@
+import pygame, sys, random, math, threading, time
+
+# ================= SETUP =================
+pygame.init()
+WIDTH, HEIGHT = 1400, 800
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Traffic Intersection Simulation")
+clock = pygame.time.Clock()
+
+
+# ================= IMAGES =================
+bg = pygame.image.load("images/intersection.png")
+
+signals_img = {
+    "red": pygame.image.load("images/signals/red.png"),
+    "yellow": pygame.image.load("images/signals/yellow.png"),
+    "green": pygame.image.load("images/signals/green.png")
+}
+
+# ================= SIGNAL CONFIG =================
+GREEN = 10
+YELLOW = 3
+
+currentGreen = 0
+currentYellow = False
+
+signalPos = [
+    (515,180),  # atas kiri
+    (845,180),  # atas kanan
+    (845,600),  # bawah kanan
+    (515,600)   # bawah kiri
+]
+
+signalTimerPos = [
+    (515,160),
+    (845,160),
+    (845,580),
+    (515,580)
+]
+signalDir = ['right','down','left','up']
+
+signals = []
+for i in range(4):
+    signals.append({"green":GREEN,"yellow":YELLOW,"red":0})
+
+# Tambahkan timer untuk setiap sinyal
+signalTimers = [GREEN, GREEN, GREEN, GREEN]
+
+# ================= VEHICLE CONFIG =================
+speeds = {'car':1.4,'bus':1.1,'truck':1.1,'bike':1.6}
+
+startPos = {
+    'right':(-120,370),
+    'left':(WIDTH+120,460),
+    'down':(720,-120),
+    'up':(640,HEIGHT+120)
+}
+
+stopLine = {
+    'right':535,
+    'left':840,
+    'down':285,
+    'up':540
+}
+
+turnChance = 0.3
+vehicles = pygame.sprite.Group()
+
+# ================= VEHICLE CLASS =================
+class Vehicle(pygame.sprite.Sprite):
+    def __init__(self, vtype, direction):
+        super().__init__()
+        self.type = vtype
+        self.direction = direction
+        self.speed = speeds[vtype]
+
+        self.image_original = pygame.image.load(
+            f"images/{direction}/{vtype}.png"
+        )
+        self.image = self.image_original
+        self.rect = self.image.get_rect(center=startPos[direction])
+
+        self.crossed = False
+        self.turned = False
+        self.turn = random.random() < turnChance
+        self.scale = 1.0
+        self.angle = 0
+        self.target_angle = 0
+        self.rotating = False
+        self.rotation_speed = 0.5  # kecil = lebih smooth
+        self.passed_stopline = False
+
+    def move(self):
+        global currentGreen, currentYellow
+
+        # ===== COLLISION DETECTION =====
+        # Cek jika ada kendaraan lain di depan
+        collision = False
+        SAFE = 8
+
+        for other in vehicles:
+            if other == self:
+                continue
+
+            if self.direction != other.direction:
+                continue
+
+            if self.direction == 'right':
+                if 0 < other.rect.left - self.rect.right < SAFE:
+                    collision = True
+
+            elif self.direction == 'left':
+                if 0 < self.rect.left - other.rect.right < SAFE:
+                    collision = True
+
+            elif self.direction == 'down':
+                if 0 < other.rect.top - self.rect.bottom < SAFE:
+                    collision = True
+
+            elif self.direction == 'up':
+                if 0 < self.rect.top - other.rect.bottom < SAFE:
+                    collision = True
+
+                    # ===== FORCE CROSSED AFTER STOPLINE (FIX DOWN ISSUE) =====
+            if not self.crossed:
+                if self.direction == 'down' and self.rect.top > stopLine['down']:
+                    self.crossed = True
+                elif self.direction == 'right' and self.rect.left > stopLine['right']:
+                    self.crossed = True
+                elif self.direction == 'up' and self.rect.bottom < stopLine['up']:
+                    self.crossed = True
+                elif self.direction == 'left' and self.rect.right < stopLine['left']:
+                    self.crossed = True
+
+            if self.rotating:
+                if self.angle > self.target_angle:
+                    self.angle -= self.rotation_speed
+                    center = self.rect.center
+                    self.image = pygame.transform.rotate(self.image_original, self.angle)
+                    self.rect = self.image.get_rect(center=center)
+                else:
+                    self.angle = self.target_angle
+                    self.rotating = False
+                    self.direction = self.next_direction
+
+                    # ===== PASS STOPLINE (FINAL FIX) =====
+            if not self.passed_stopline:
+                if self.direction == 'right' and self.rect.left >= stopLine['right']:
+                    self.passed_stopline = True
+                    self.crossed = True
+
+                elif self.direction == 'left' and self.rect.right <= stopLine['left']:
+                    self.passed_stopline = True
+                    self.crossed = True
+
+                elif self.direction == 'down' and self.rect.top >= stopLine['down']:
+                    self.passed_stopline = True
+                    self.crossed = True
+
+                elif self.direction == 'up' and self.rect.bottom <= stopLine['up']:
+                    self.passed_stopline = True
+                    self.crossed = True
+
+
+        # ===== STOP LOGIC (FINAL REALISTIC FIX) =====
+        stop = False
+
+        if not self.passed_stopline:
+            lampu_stop = (self.direction != signalDir[currentGreen]) or currentYellow
+
+            if lampu_stop:
+                if self.direction == 'right':
+                    if self.rect.centerx + self.rect.width//2 >= stopLine['right']:
+                        stop = True
+
+                elif self.direction == 'left':
+                    if self.rect.centerx - self.rect.width//2 <= stopLine['left']:
+                        stop = True
+
+                elif self.direction == 'down':
+                    if self.rect.centery + self.rect.height//2 >= stopLine['down']:
+                        stop = True
+
+                elif self.direction == 'up':
+                    if self.rect.centery - self.rect.height//2 <= stopLine['up']:
+                        stop = True
+
+
+        if not stop and not collision:
+            if self.direction == 'right': self.rect.x += self.speed
+            if self.direction == 'left': self.rect.x -= self.speed
+            if self.direction == 'down': self.rect.y += self.speed
+            if self.direction == 'up': self.rect.y -= self.speed
+
+
+        # ===== TURN =====
+        # ===== TURN (SMOOTH) =====
+        if self.crossed and self.turn and not self.turned and not self.rotating:
+            self.rotating = True
+            self.turned = True
+
+            if self.direction == 'right':
+                self.next_direction = 'down'
+            elif self.direction == 'down':
+                self.next_direction = 'left'
+            elif self.direction == 'left':
+                self.next_direction = 'up'
+            elif self.direction == 'up':
+                self.next_direction = 'right'
+
+            self.target_angle = self.angle - 90
+
+
+        # ===== ZOOM OUT =====
+        if self.crossed:
+            cx, cy = WIDTH//2, HEIGHT//2
+            dist = math.hypot(self.rect.centerx-cx, self.rect.centery-cy)
+
+            target = max(0.6, 1 - dist/1600)
+            self.scale += (target - self.scale) * 0.03
+
+        # ===== REMOVE ===== (DIHAPUS agar kendaraan terus berjalan)
+        # Bagian ini dihapus sehingga kendaraan yang sudah melewati intersection terus berjalan tanpa dihapus
+
+# ================= SIGNAL LOOP =================
+def signalLoop():
+    global currentGreen, currentYellow, signalTimers
+    while True:
+        # Green phase
+        for t in range(GREEN, 0, -1):
+            signalTimers[currentGreen] = t
+            time.sleep(1)
+        # Yellow phase
+        currentYellow = True
+        for t in range(YELLOW, 0, -1):
+            signalTimers[currentGreen] = t
+            time.sleep(1)
+        currentYellow = False
+        currentGreen = (currentGreen+1)%4
+        # Set red for others
+        for i in range(4):
+            if i != currentGreen:
+                signalTimers[i] = "---"  # Atau hitung red time jika perlu
+
+# ================= VEHICLE GENERATOR =================
+def spawnVehicles():
+    while True:
+        vtype = random.choice(['car','bus','truck','bike'])
+        direction = random.choice(['right','left','up','down'])
+        vehicles.add(Vehicle(vtype,direction))
+        time.sleep(1.5)
+
+threading.Thread(target=signalLoop,daemon=True).start()
+threading.Thread(target=spawnVehicles,daemon=True).start()
+
+# ================= MAIN LOOP =================
+font = pygame.font.Font(None,28)
+
+while True:
+    for e in pygame.event.get():
+        if e.type == pygame.QUIT:
+            pygame.quit()
+            sys.exit()
+
+    screen.blit(bg,(0,0))
+
+    # Draw signals and timers
+    for i,pos in enumerate(signalPos):
+        if i == currentGreen:
+            img = signals_img["yellow"] if currentYellow else signals_img["green"]
+        else:
+            img = signals_img["red"]
+        screen.blit(img,pos)
+        # Tampilkan timer
+        timer_text = font.render(str(signalTimers[i]), True, (255,255,255), (0,0,0))
+        screen.blit(timer_text, signalTimerPos[i])
+
+    for v in vehicles:
+        v.move()
+        screen.blit(v.image,v.rect)
+
+    pygame.display.update()
+    clock.tick(60)
