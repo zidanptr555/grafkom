@@ -19,7 +19,7 @@ signals_img = {
 
 # ================= SIGNAL CONFIG =================
 GREEN = 12
-YELLOW = 5
+YELLOW = 3
 
 currentGreen = 0
 currentYellow = False
@@ -81,6 +81,7 @@ class Vehicle(pygame.sprite.Sprite):
         )
         self.image = self.image_original
         self.rect = self.image.get_rect(center=startPos[direction])
+        self.zoom_offset = 0
 
         self.crossed = False
         self.turned = False
@@ -213,17 +214,14 @@ class Vehicle(pygame.sprite.Sprite):
 
             self.target_angle = self.angle - 90
 
-
-        # ===== ZOOM OUT =====
+        # ===== ZOOM OUT (AMAN) =====
         if self.crossed:
-            cx, cy = WIDTH//2, HEIGHT//2
-            dist = math.hypot(self.rect.centerx-cx, self.rect.centery-cy)
+            cx, cy = WIDTH // 2, HEIGHT // 2
+            dist = math.hypot(self.rect.centerx - cx, self.rect.centery - cy)
+            self.scale = max(0.65, 1 - dist / 1600)
+        else:
+            self.scale = 1.0
 
-            target = max(0.6, 1 - dist/1600)
-            self.scale += (target - self.scale) * 0.03
-
-        # ===== REMOVE ===== (DIHAPUS agar kendaraan terus berjalan)
-        # Bagian ini dihapus sehingga kendaraan yang sudah melewati intersection terus berjalan tanpa dihapus
 
 # ================= SIGNAL LOOP =================
 def signalLoop():
@@ -280,7 +278,11 @@ while True:
 
     for v in vehicles:
         v.move()
-        screen.blit(v.image,v.rect)
+        img = pygame.transform.rotozoom(v.image_original, v.angle, v.scale)
+        rect = img.get_rect(center=v.rect.center)
+        screen.blit(img, rect)
+
+
 
     pygame.display.update()
     clock.tick(60)
