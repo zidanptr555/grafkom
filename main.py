@@ -18,24 +18,24 @@ signals_img = {
 }
 
 # ================= SIGNAL CONFIG =================
-GREEN = 10
-YELLOW = 3
+GREEN = 12
+YELLOW = 5
 
 currentGreen = 0
 currentYellow = False
 
 signalPos = [
-    (515,180),  # atas kiri
-    (845,180),  # atas kanan
-    (845,600),  # bawah kanan
-    (515,600)   # bawah kiri
+    (500,160),  # atas kiri
+    (825,160),  # atas kanan
+    (825,540),  # bawah kanan
+    (500,540)   # bawah kiri
 ]
 
 signalTimerPos = [
-    (515,160),
-    (845,160),
-    (845,580),
-    (515,580)
+    (500,140),
+    (825,140),
+    (825,520),
+    (500,520)
 ]
 signalDir = ['right','down','left','up']
 
@@ -47,14 +47,16 @@ for i in range(4):
 signalTimers = [GREEN, GREEN, GREEN, GREEN]
 
 # ================= VEHICLE CONFIG =================
-speeds = {'car':1.4,'bus':1.1,'truck':1.1,'bike':1.6}
+speeds = {'car':1.3,'bus':1.1,'truck':1.1,'bike':1.5}
 
 startPos = {
     'right':(-120,370),
-    'left':(WIDTH+120,460),
+    'left':(WIDTH+120,450),
     'down':(720,-120),
     'up':(640,HEIGHT+120)
 }
+
+TURN_TRIGGER = 12   # jarak setelah stopline agar mulai belok
 
 stopLine = {
     'right':535,
@@ -87,8 +89,14 @@ class Vehicle(pygame.sprite.Sprite):
         self.angle = 0
         self.target_angle = 0
         self.rotating = False
-        self.rotation_speed = 0.5  # kecil = lebih smooth
+        self.rotation_speed = 0.5 if direction != 'down' else 0.35
         self.passed_stopline = False
+        self.next_direction = self.direction
+        if self.direction == 'up':
+            self.rotation_speed = 0.35
+
+
+        
 
     def move(self):
         global currentGreen, currentYellow
@@ -96,7 +104,7 @@ class Vehicle(pygame.sprite.Sprite):
         # ===== COLLISION DETECTION =====
         # Cek jika ada kendaraan lain di depan
         collision = False
-        SAFE = 8
+        SAFE = 18
 
         for other in vehicles:
             if other == self:
@@ -121,52 +129,47 @@ class Vehicle(pygame.sprite.Sprite):
                 if 0 < self.rect.top - other.rect.bottom < SAFE:
                     collision = True
 
+            
+
                     # ===== FORCE CROSSED AFTER STOPLINE (FIX DOWN ISSUE) =====
             if not self.crossed:
-                if self.direction == 'down' and self.rect.top > stopLine['down']:
+                if self.direction == 'down' and self.rect.top > stopLine['down'] + TURN_TRIGGER:
                     self.crossed = True
-                elif self.direction == 'right' and self.rect.left > stopLine['right']:
+                elif self.direction == 'right' and self.rect.left > stopLine['right'] + TURN_TRIGGER:
                     self.crossed = True
-                elif self.direction == 'up' and self.rect.bottom < stopLine['up']:
+                elif self.direction == 'up' and self.rect.bottom < stopLine['up'] - TURN_TRIGGER:
                     self.crossed = True
-                elif self.direction == 'left' and self.rect.right < stopLine['left']:
+                elif self.direction == 'left' and self.rect.right < stopLine['left'] - TURN_TRIGGER:
                     self.crossed = True
 
-            if self.rotating:
-                if self.angle > self.target_angle:
-                    self.angle -= self.rotation_speed
-                    center = self.rect.center
-                    self.image = pygame.transform.rotate(self.image_original, self.angle)
-                    self.rect = self.image.get_rect(center=center)
-                else:
-                    self.angle = self.target_angle
-                    self.rotating = False
-                    self.direction = self.next_direction
+
+            self.angle -= min(self.rotation_speed, abs(self.angle - self.target_angle))
+            center = self.rect.center
+            self.image = pygame.transform.rotate(self.image_original, self.angle)
+            self.rect = self.image.get_rect(center=center)
+        else:
+            self.angle = self.target_angle
+            self.rotating = False
+            self.direction = self.next_direction
 
                     # ===== PASS STOPLINE (FINAL FIX) =====
             if not self.passed_stopline:
-                if self.direction == 'right' and self.rect.left >= stopLine['right']:
+                if self.direction == 'right' and self.rect.left > stopLine['right']:
                     self.passed_stopline = True
-                    self.crossed = True
+                elif self.direction == 'left' and self.rect.right < stopLine['left']:
+                    self.passed_stopline = True
+                elif self.direction == 'down' and self.rect.top > stopLine['down']:
+                    self.passed_stopline = True
+                elif self.direction == 'up' and self.rect.bottom < stopLine['up']:
+                    self.passed_stopline = True
 
-                elif self.direction == 'left' and self.rect.right <= stopLine['left']:
-                    self.passed_stopline = True
-                    self.crossed = True
-
-                elif self.direction == 'down' and self.rect.top >= stopLine['down']:
-                    self.passed_stopline = True
-                    self.crossed = True
-
-                elif self.direction == 'up' and self.rect.bottom <= stopLine['up']:
-                    self.passed_stopline = True
-                    self.crossed = True
 
 
         # ===== STOP LOGIC (FINAL REALISTIC FIX) =====
         stop = False
 
         if not self.passed_stopline:
-            lampu_stop = (self.direction != signalDir[currentGreen]) or currentYellow
+            lampu_stop = (self.direction != signalDir[currentGreen])
 
             if lampu_stop:
                 if self.direction == 'right':
@@ -248,7 +251,7 @@ def spawnVehicles():
         vtype = random.choice(['car','bus','truck','bike'])
         direction = random.choice(['right','left','up','down'])
         vehicles.add(Vehicle(vtype,direction))
-        time.sleep(1.5)
+        time.sleep(3)
 
 threading.Thread(target=signalLoop,daemon=True).start()
 threading.Thread(target=spawnVehicles,daemon=True).start()
